@@ -5,6 +5,93 @@ Thanks goes to all the kind PyInstaller contributors who have contributed
 new code, bug reports, fixes, comments and ideas. A brief list follows,
 please let us know if your name is omitted by accident:
 
+
+Contributions to PyInstaller 3.3
+----------------------------------
+
+Special Thanks xiovat for implementing Python3.6 support and to Jonathan
+Springer and xoviat for stabilizing the continuous integration tests.
+
+* Hartmut Goebel - Core developer and release manager.
+* Bryan A. Jones - Core developer.
+* David Vierra - Core developer and encoding specialist.
+* xoviat - brave programmer
+* Jonathan Springer
+* Vito Kortbeek
+* Dustin Spicuzza
+
+* Ben Hagen
+* Paavo
+* Brian Teague
+* Chris Norman
+* Jonathan Stewmon
+* Guillaume Thiolliere
+* Justin Harris
+* Kenneth Zhao
+* Paul Müller
+* giumas
+* y2kbugger
+* 肖寅东
+
+* Adam Clark, AndCycle, Andreas Schiefer, Arthur Silva, Aswa Paul, Bharath
+  Upadhya, Brian Teague, Charles Duffy, Chris Coutinho, Cody Scott, Czarek
+  Tomczak, Dang Mai, Daniel Hyams, David Hoese, Eelco van Vliet, Eric
+  Drechsel, Erik Bjäreholt, Hatem AlSum, Henry Senyondo, Jan Čapek, Jeremy T.
+  Hetzel, Jonathan Dan, Julie Marchant, Luke Lee, Marc Abramowitz, Matt
+  Wilkie, Matthew Einhorn, Michael Herrmann, Niklas Rosenstein, Philippe
+  Ombredanne, Piotr Radkowski, Ronald Oussoren, Ruslan Kuprieiev, Segev Finer,
+  Shengjing Zhu 朱晟菁, Steve, Steven Noonan, Tibor Csonka, Till Bey, Tobias
+  Gruetzmacher, 陳鵬宇 (float)
+
+
+Contributions to PyInstaller 3.2.1
+----------------------------------
+
+Special Thanks to Thomas Waldmann and David Vierra for support when working on
+the new build system.
+
+- Hartmut Goebel - Core developer and release manager.
+- Martin Zibricky - Core developer.
+- David Cortesi - Core developer and documentation manager.
+- Bryan A. Jones - Core developer.
+- David Vierra - Core developer and encoding specialist.
+- Cecil Curry - brave bug-fixing and code-refactoring
+
+- Amane Suzuki
+- Andy Cycle
+- Axel Huebl
+- Bruno Oliveira
+- Dan Auerbach
+- Daniel Hyams
+- Denis Akhiyarov
+- Dror Asaf
+- Dustin Spicuzza
+- Emanuele Bertoldi
+- Glenn Ramsey
+- Hugh Dowling
+- Jesse Suen
+- Jonathan Dan
+- Jonathan Springer
+- Jonathan Stewmon
+- Julie Marchant
+- Kenneth Zhao
+- Linus Groh
+- Mansour Moufid
+- Martin Zibricky
+- Matteo Bertini
+- Nicolas Dickreuter
+- Peter Würtz
+- Ronald Oussoren
+- Santiago Reig
+- Sean Fisk
+- Sergei Litvinchuk
+- Stephen Rauch
+- Thomas Waldmann
+- Till Bald
+- xoviat
+
+
+
 Contributions to PyInstaller 3.2
 ----------------------------------
 

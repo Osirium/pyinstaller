@@ -1,6 +1,6 @@
 /*
  * ****************************************************************************
- * Copyright (c) 2013-2016, PyInstaller Development Team.
+ * Copyright (c) 2013-2017, PyInstaller Development Team.
  * Distributed under the terms of the GNU General Public License with exception
  * for distributing bootloader.
  *
@@ -91,7 +91,7 @@ static int argc_pyi = 0;
  * on the App icon in the OS X dock.
  */
 #if defined(__APPLE__) && defined(WINDOWED)
-static void process_apple_events_new();
+static void process_apple_events();
 #endif
 
 char *
@@ -103,7 +103,7 @@ pyi_strjoin(const char *first, const char *sep, const char *second){
      * for freeing. Returns NULL if memory could not be allocated.
      */
     int first_len, sep_len, second_len;
-    char *result, *tmp;
+    char *result;
     first_len = first ? strlen(first) : 0;
     sep_len = sep ? strlen(sep) : 0;
     second_len = second ? strlen(second) : 0;
@@ -111,20 +111,16 @@ pyi_strjoin(const char *first, const char *sep, const char *second){
     if (!result) {
         return NULL;
     }
-    tmp = result;
+    *result = '\0';
     if (first_len) {
-        memcpy(tmp, first, first_len);
-        tmp += first_len;
+        strcat(result, first);
     }
     if (sep_len && first_len && second_len) {
-        memcpy(tmp, sep, sep_len);
-        tmp += sep_len;
+        strcat(result, sep);
     }
     if (second_len) {
-        memcpy(tmp, second, second_len);
-        tmp += second_len;
+        strcat(result, second);
     }
-    *tmp = '\0';
     return result;
 }
 
@@ -187,10 +183,14 @@ pyi_setenv(const char *variable, const char *value)
 
 #ifdef _WIN32
     wchar_t * wvar, *wval;
+
     wvar = pyi_win32_utils_from_utf8(NULL, variable, 0);
     wval = pyi_win32_utils_from_utf8(NULL, value, 0);
 
-    rc = SetEnvironmentVariableW(wvar, wval);
+    // Not sure why, but SetEnvironmentVariableW() didn't work with _wtempnam()
+    // Replaced it with _wputenv_s()
+    rc = _wputenv_s(wvar, wval);
+
     free(wvar);
     free(wval);
 #else
@@ -224,16 +224,28 @@ pyi_unsetenv(const char *variable)
 
 /* TODO rename fuction and revisit */
 int
-pyi_get_temp_path(char *buffer)
+pyi_get_temp_path(char *buffer, char *runtime_tmpdir)
 {
     int i;
     wchar_t *wchar_ret;
     wchar_t prefix[16];
     wchar_t wchar_buffer[PATH_MAX];
+    char *original_tmpdir;
+    char runtime_tmpdir_abspath[PATH_MAX + 1];
 
-    /*
-     * Get path to Windows temporary directory.
-     */
+    if (runtime_tmpdir != NULL) {
+      /*
+       * Get original TMP environment variable so it can be restored
+       * after this is done.
+       */
+      original_tmpdir = pyi_getenv("TMP");
+      /*
+       * Set TMP to runtime_tmpdir for _wtempnam() later
+       */
+      pyi_path_fullpath(runtime_tmpdir_abspath, PATH_MAX, runtime_tmpdir);
+      pyi_setenv("TMP", runtime_tmpdir_abspath);
+    }
+
     GetTempPathW(PATH_MAX, wchar_buffer);
 
     swprintf(prefix, 16, L"_MEI%d", getpid());
@@ -250,9 +262,31 @@ pyi_get_temp_path(char *buffer)
         if (_wmkdir(wchar_ret) == 0) {
             pyi_win32_utils_to_utf8(buffer, wchar_ret, PATH_MAX);
             free(wchar_ret);
+            if (runtime_tmpdir != NULL) {
+              /*
+               * Restore TMP to what it was
+               */
+              if (original_tmpdir != NULL) {
+                pyi_setenv("TMP", original_tmpdir);
+                free(original_tmpdir);
+              } else {
+                pyi_unsetenv("TMP");
+              }
+            }
             return 1;
         }
         free(wchar_ret);
+    }
+    if (runtime_tmpdir != NULL) {
+      /*
+       * Restore TMP to what it was
+       */
+      if (original_tmpdir != NULL) {
+        pyi_setenv("TMP", original_tmpdir);
+        free(original_tmpdir);
+      } else {
+        pyi_unsetenv("TMP");
+      }
     }
     return 0;
 }
@@ -280,36 +314,42 @@ pyi_test_temp_path(char *buff)
 
 /* TODO merge this function with windows version. */
 static int
-pyi_get_temp_path(char *buff)
+pyi_get_temp_path(char *buff, char *runtime_tmpdir)
 {
-    /* On OSX the variable TMPDIR is usually defined. */
-    static const char *envname[] = {
-        "TMPDIR", "TEMP", "TMP", 0
-    };
-    static const char *dirname[] = {
-        "/tmp", "/var/tmp", "/usr/tmp", 0
-    };
-    int i;
-    char *p;
+    if (runtime_tmpdir != NULL) {
+      strcpy(buff, runtime_tmpdir);
+      if (pyi_test_temp_path(buff))
+        return 1;
+    } else {
+      /* On OSX the variable TMPDIR is usually defined. */
+      static const char *envname[] = {
+          "TMPDIR", "TEMP", "TMP", 0
+      };
+      static const char *dirname[] = {
+          "/tmp", "/var/tmp", "/usr/tmp", 0
+      };
+      int i;
+      char *p;
 
-    for (i = 0; envname[i]; i++) {
-        p = pyi_getenv(envname[i]);
+      for (i = 0; envname[i]; i++) {
+          p = pyi_getenv(envname[i]);
 
-        if (p) {
-            strcpy(buff, p);
+          if (p) {
+              strcpy(buff, p);
 
-            if (pyi_test_temp_path(buff)) {
-                return 1;
-            }
-        }
-    }
+              if (pyi_test_temp_path(buff)) {
+                  return 1;
+              }
+          }
+      }
 
-    for (i = 0; dirname[i]; i++) {
-        strcpy(buff, dirname[i]);
+      for (i = 0; dirname[i]; i++) {
+          strcpy(buff, dirname[i]);
 
-        if (pyi_test_temp_path(buff)) {
-            return 1;
-        }
+          if (pyi_test_temp_path(buff)) {
+              return 1;
+          }
+      }
     }
     return 0;
 }
@@ -323,8 +363,15 @@ pyi_get_temp_path(char *buff)
 int
 pyi_create_temp_path(ARCHIVE_STATUS *status)
 {
+    char *runtime_tmpdir = NULL;
+
     if (status->has_temp_directory != true) {
-        if (!pyi_get_temp_path(status->temppath)) {
+        runtime_tmpdir = pyi_arch_get_option(status, "pyi-runtime-tmpdir");
+        if(runtime_tmpdir != NULL) {
+          VS("LOADER: Found runtime-tmpdir %s\n", runtime_tmpdir);
+        }
+
+        if (!pyi_get_temp_path(status->temppath, runtime_tmpdir)) {
             FATALERROR("INTERNAL ERROR: cannot create temporary directory!\n");
             return -1;
         }
@@ -422,7 +469,8 @@ pyi_remove_temp_path(const char *dir)
     struct dirent *finfo;
     int dirnmlen;
 
-    strcpy(fnm, dir);
+    /* Leave 1 char for PY_SEP if needed */
+    strncpy(fnm, dir, PATH_MAX);
     dirnmlen = strlen(fnm);
 
     if (fnm[dirnmlen - 1] != PYI_SEP) {
@@ -472,13 +520,25 @@ pyi_open_target(const char *path, const char* name_)
     char fnm[PATH_MAX];
     char name[PATH_MAX];
     char *dir;
+    size_t len;
 
-    strcpy(fnm, path);
-    strcpy(name, name_);
+    strncpy(fnm, path, PATH_MAX);
+    strncpy(name, name_, PATH_MAX);
 
+    /* Check if the path names could be copied */
+    if (fnm[PATH_MAX-1] != '\0' || name[PATH_MAX-1] != '\0') {
+        return NULL;
+    }
+
+    len = strlen(fnm);
     dir = strtok(name, PYI_SEPSTR);
 
     while (dir != NULL) {
+        len += strlen(dir) + strlen(PYI_SEPSTR);
+        /* Check if fnm does not exceed the buffer size */
+        if (len >= PATH_MAX-1) {
+            return NULL;
+        }
         strcat(fnm, PYI_SEPSTR);
         strcat(fnm, dir);
         dir = strtok(NULL, PYI_SEPSTR);
@@ -530,6 +590,12 @@ pyi_copy_file(const char *src, const char *dst, const char *filename)
     int error = 0;
 
     if (in == NULL || out == NULL) {
+        if (in) {
+            fclose(in);
+        }
+        if (out) {
+            fclose(out);
+        }
         return -1;
     }
 
@@ -654,7 +720,7 @@ pyi_utils_create_child(const char *thisfile, const int argc, char *const argv[])
         GetExitCodeProcess(pi.hProcess, (unsigned long *)&rc);
     }
     else {
-        FATALERROR("Error creating child process!\n");
+        FATAL_WINERROR("CreateProcessW", "Error creating child process!\n");
         rc = -1;
     }
     return rc;
@@ -686,10 +752,11 @@ set_dynamic_library_path(const char* path)
      * that we have bundled.
      */
     orig_path = pyi_getenv(env_var);
-    pyi_setenv(env_var_orig, orig_path);
-    VS("LOADER: %s=%s\n", env_var_orig, orig_path);
-
-    /* prepend our path to the original path */
+    if (orig_path) {
+        pyi_setenv(env_var_orig, orig_path);
+        VS("LOADER: %s=%s\n", env_var_orig, orig_path);
+    }
+    /* prepend our path to the original path, pyi_strjoin can deal with orig_path being NULL or empty string */
     new_path = pyi_strjoin(path, ":", orig_path);
     rc = pyi_setenv(env_var, new_path);
     VS("LOADER: %s=%s\n", env_var, new_path);
@@ -743,6 +810,38 @@ pyi_utils_set_environment(const ARCHIVE_STATUS *status)
     return rc;
 }
 
+/*
+ * If the program is actived by a systemd socket, systemd will set
+ * LISTEN_PID, LISTEN_FDS environment variable for that process.
+ *
+ * LISTEN_PID is set to the pid of the parent process of bootloader,
+ * which is forked by systemd.
+ *
+ * Bootloader will duplicate LISTEN_FDS to child process, but the
+ * LISTEN_PID environment variable remains unchanged.
+ *
+ * Here we change the LISTEN_PID to the child pid in child process.
+ * So the application can detecte it and use the LISTEN_FDS created
+ * by systemd.
+ */
+int
+set_systemd_env()
+{
+    const char * env_var = "LISTEN_PID";
+    if(pyi_getenv(env_var) != NULL) {
+        /* the ULONG_STRING_SIZE is roughly equal to log10(max number)
+         * but can be calculated in compile time.
+         * The idea is from an answer on stackoverflow,
+         * https://stackoverflow.com/questions/8257714/
+         */
+        #define ULONG_STRING_SIZE (sizeof (unsigned long) * CHAR_BIT / 3 + 2)
+        char pid_str[ULONG_STRING_SIZE];
+        snprintf(pid_str, ULONG_STRING_SIZE, "%ld", (unsigned long)getpid());
+        return pyi_setenv(env_var, pid_str);
+    }
+    return 0;
+}
+
 /* Remember child process id. It allows sending a signal to child process.
  * Frozen application always runs in a child process. Parent process is used
  * to setup environment for child process and clean the environment when
@@ -784,7 +883,7 @@ pyi_utils_create_child(const char *thisfile, const int argc, char *const argv[])
     }
 
     #if defined(__APPLE__) && defined(WINDOWED)
-    process_apple_events_new();
+    process_apple_events();
     #endif
 
     pid = fork();
@@ -792,6 +891,10 @@ pyi_utils_create_child(const char *thisfile, const int argc, char *const argv[])
     /* Child code. */
     if (pid == 0) {
         /* Replace process by starting a new application. */
+        if (set_systemd_env() != 0) {
+            VS("WARNING: Application is started by systemd socket,"
+               "but we can't set proper LISTEN_PID on it.\n");
+        }
         execvp(thisfile, argv_pyi);
     }
     /* Parent code. */
@@ -834,251 +937,128 @@ pyi_utils_create_child(const char *thisfile, const int argc, char *const argv[])
 /*
  * On Mac OS X this converts files from kAEOpenDocuments events into sys.argv.
  */
-    #if defined(__APPLE__) && defined(WINDOWED)
+#if defined(__APPLE__) && defined(WINDOWED)
 
-/* TODO: Why is this commented out? */
-/*
- *  static pascal OSErr handle_open_doc_ae(const AppleEvent *theAppleEvent, AppleEvent *reply, SRefCon handlerRefcon)
- *  {
- *  AEDescList docList;
- *  long index;
- *  long count = 0;
- *  int i;
- *  char *myFileName;
- *  Size actualSize;
- *  DescType returnedType;
- *  AEKeyword keywd;
- *  FSRef theRef;
- *
- *  VS("LOADER: handle_open_doc_ae called.\n");
- *
- *  OSErr err = AEGetParamDesc(theAppleEvent, keyDirectObject, typeAEList, &docList);
- *  if (err != noErr) return err;
- *
- *  err = AECountItems(&docList, &count);
- *  if (err != noErr) return err;
- *  for (index = 1; index <= count; index++)
- *  {
- *    err = AEGetNthPtr(&docList, index, typeFSRef, &keywd, &returnedType, &theRef, sizeof(theRef), &actualSize);
- *
- *    CFURLRef fullURLRef;
- *    fullURLRef = CFURLCreateFromFSRef(NULL, &theRef);
- *    CFStringRef cfString = CFURLCopyFileSystemPath(fullURLRef, kCFURLPOSIXPathStyle);
- *    CFRelease(fullURLRef);
- *    CFMutableStringRef cfMutableString = CFStringCreateMutableCopy(NULL, 0, cfString);
- *    CFRelease(cfString);
- *    CFStringNormalize(cfMutableString, kCFStringNormalizationFormC);
- *    int len = CFStringGetLength(cfMutableString);
- *    const int bufferSize = (len+1)*6;  // in theory up to six bytes per Unicode code point, for UTF-8.
- *    char* buffer = (char*)malloc(bufferSize);
- *    CFStringGetCString(cfMutableString, buffer, bufferSize, kCFStringEncodingUTF8);
- *
- *    argv_pyi = (char**)realloc(argv_pyi,(argc_pyi+2)*sizeof(char*));
- *    argv_pyi[argc_pyi++] = strdup(buffer);
- *    argv_pyi[argc_pyi] = NULL;
- *
- *    free(buffer);
- *  }
- *
- *  err = AEDisposeDesc(&docList);
- *
- *
- *  return (err);
- *  }
- *
- *  static int gQuit = false;
- *
- *  static void apple_main_event_loop()
- *  {
- *  OSErr err;
- *  EventRef eventRef;
- *  EventRecord event;
- *  //UInt32 timeout = 1*60; // number of ticks (1/60th of a second)
- *  VS("LOADER: Entering AppleEvent main loop.\n");
- *
- *  while (!gQuit)
- *  {
- *     // Previous func WaitNextEvent() was deprecated and 32-bit only.
- *     // Func ReceiveNextEvent() is threadsafe and available even for 64-bit OS X.
- *     //gotEvent = WaitNextEvent(highLevelEventMask, &event, timeout, NULL);
- *     err = ReceiveNextEvent(0, NULL, kEventDurationNoWait, true, &eventRef);
- *     if (err == noErr)
- *     {
- *        VS("LOADER: Processing an AppleEvent.\n");
- *        // Convert the event ref to the type AEProcessAppleEvent expects.
- *        ConvertEventRefToEventRecord(eventRef, &event);
- *        AEProcessAppleEvent(&event);
- *        // Func ReceiveNextEvent() requires releasing event manually.
- *        ReleaseEvent(eventRef);
- *     }
- *     gQuit = true;
- *  }
- *  }
- *
- *
- *  static void process_apple_events()
- *  {
- *  OSErr err;
- *
- *  err = AEInstallEventHandler( kCoreEventClass , kAEOpenDocuments , handle_open_doc_ae , 0 , false );
- *  if (err != noErr)
- *   {
- *      VS("LOADER: Error installing AppleEvent handler.\n");
- *   }
- *   else
- *   {
- *      apple_main_event_loop();
- *
- *      err = AERemoveEventHandler(kCoreEventClass, kAEOpenDocuments, handle_open_doc_ae, false);
- *      if (err != noErr)
- *      {
- *         VS("LOADER: Error uninstalling AppleEvent handler.\n");
- *      }
- *   }
- *
- *  }
- */
-/*
- * On Mac OS X converts files from kAEOpenDocuments events into sys.argv.
- * New implementation of handling Apple events - works even on 64bit Mac OS X.
- */
-static pascal OSStatus
-do_filenames_conversion_to_argv(EventHandlerCallRef next_handler,
-                                EventRef the_event,
-                                void* user_data)
+static int gQuit = false;
+
+static pascal OSErr handle_open_doc_ae(const AppleEvent *theAppleEvent, AppleEvent *reply, SRefCon handlerRefcon)
 {
+   AEDescList docList;
+   long index;
+   long count = 0;
+   int i;
+   char *myFileName;
+   Size actualSize;
+   DescType returnedType;
+   AEKeyword keywd;
+   FSRef theRef;
 
-/* /////////////// OLD implementation */
-/*
- *  AEDescList docList;
- *  long index;
- *  long count = 0;
- *  int i;
- *  char *myFileName;
- *  Size actualSize;
- *  DescType returnedType;
- *  AEKeyword keywd;
- *  FSRef theRef;
- *
- *  VS("LOADER: handle_open_doc_ae called.\n");
- *
- *  OSErr err = AEGetParamDesc(theAppleEvent, keyDirectObject, typeAEList, &docList);
- *  if (err != noErr) return err;
- *
- *  err = AECountItems(&docList, &count);
- *  if (err != noErr) return err;
- *  for (index = 1; index <= count; index++)
- *  {
- *    err = AEGetNthPtr(&docList, index, typeFSRef, &keywd, &returnedType, &theRef, sizeof(theRef), &actualSize);
- *
- *    CFURLRef fullURLRef;
- *    fullURLRef = CFURLCreateFromFSRef(NULL, &theRef);
- *    CFStringRef cfString = CFURLCopyFileSystemPath(fullURLRef, kCFURLPOSIXPathStyle);
- *    CFRelease(fullURLRef);
- *    CFMutableStringRef cfMutableString = CFStringCreateMutableCopy(NULL, 0, cfString);
- *    CFRelease(cfString);
- *    CFStringNormalize(cfMutableString, kCFStringNormalizationFormC);
- *    int len = CFStringGetLength(cfMutableString);
- *    const int bufferSize = (len+1)*6;  // in theory up to six bytes per Unicode code point, for UTF-8.
- *    char* buffer = (char*)malloc(bufferSize);
- *    CFStringGetCString(cfMutableString, buffer, bufferSize, kCFStringEncodingUTF8);
- *
- *    argv_pyi = (char**)realloc(argv_pyi,(argc_pyi+2)*sizeof(char*));
- *    argv_pyi[argc_pyi++] = strdup(buffer);
- *    argv_pyi[argc_pyi] = NULL;
- *
- *    free(buffer);
- *  }
- *
- *  err = AEDisposeDesc(&docList);
- */
-/* //////////////////////////////////////////// */
+   VS("LOADER [ARGV_EMU]: OpenDocument handler called.\n");
 
-    /* Handle the kAEOpenDocuments event. */
-    VS("LOADER: AppleEvent - do_filenames_coversion_to_argv called.\n");
-    /* Obtain filenames from event. */
-    /* Every event type contains different additional information. */
-    /* TODO */
-    /* GetEventParameter(the_event, ) */
-    /* TODO */
-    /* Report success. */
-    return noErr;
+   OSErr err = AEGetParamDesc(theAppleEvent, keyDirectObject, typeAEList, &docList);
+   if (err != noErr) return err;
+
+   err = AECountItems(&docList, &count);
+   if (err != noErr) return err;
+
+   for (index = 1; index <= count; index++)
+   {
+     err = AEGetNthPtr(&docList, index, typeFSRef, &keywd, &returnedType, &theRef, sizeof(theRef), &actualSize);
+
+     CFURLRef fullURLRef;
+     fullURLRef = CFURLCreateFromFSRef(NULL, &theRef);
+     CFStringRef cfString = CFURLCopyFileSystemPath(fullURLRef, kCFURLPOSIXPathStyle);
+     CFRelease(fullURLRef);
+     CFMutableStringRef cfMutableString = CFStringCreateMutableCopy(NULL, 0, cfString);
+     CFRelease(cfString);
+     CFStringNormalize(cfMutableString, kCFStringNormalizationFormC);
+     int len = CFStringGetLength(cfMutableString);
+     const int bufferSize = (len+1)*6;  // in theory up to six bytes per Unicode code point, for UTF-8.
+     char* buffer = (char*)malloc(bufferSize);
+     CFStringGetCString(cfMutableString, buffer, bufferSize, kCFStringEncodingUTF8);
+
+     argv_pyi = (char**)realloc(argv_pyi,(argc_pyi+2)*sizeof(char*));
+     argv_pyi[argc_pyi++] = strdup(buffer);
+     argv_pyi[argc_pyi] = NULL;
+
+     VS("LOADER [ARGV_EMU]: argv entry appended.");
+
+     free(buffer);
+   }
+
+  err = AEDisposeDesc(&docList);
+
+
+  return (err);
 }
 
-/* TODO Unfinished, issue #1309. */
-static void
-process_apple_events_new()
+
+static void process_apple_events()
 {
     OSStatus handler_install_status;
     OSStatus handler_remove_status;
-    OSStatus event_received;
+    OSStatus rcv_status;
+    OSStatus pcs_status;
     EventTypeSpec event_types[1];  /*  List of event types to handle. */
-    EventHandlerUPP handler_open_doc;
+    AEEventHandlerUPP handler_open_doc;
     EventHandlerRef handler_ref; /* Reference for later removing the event handler. */
     EventRef event_ref;          /* Event that caused ReceiveNextEvent to return. */
     OSType ev_class;
     UInt32 ev_kind;
-    EventTimeout timeout = 3.0;  /* number of ticks (1/60th of a second) */
+    EventTimeout timeout = 1.0;  /* number of seconds */
 
-    VS("LOADER: AppleEvent - processing...\n");
-    /* Event types we are interested in. */
-    event_types[0].eventClass = kCoreEventClass;
-    event_types[0].eventKind = kAEOpenDocuments;
-    /* Carbon Event Manager requires convert the function pointer to type EventHandlerUPP. */
+    VS("LOADER [ARGV_EMU]: AppleEvent - processing...\n");
+
+    event_types[0].eventClass = kEventClassAppleEvent;
+    event_types[0].eventKind = kEventAppleEvent;
+
+    /* Carbon Event Manager requires us to convert the function pointer to type EventHandlerUPP. */
     /* https://developer.apple.com/legacy/library/documentation/Carbon/Conceptual/Carbon_Event_Manager/Tasks/CarbonEventsTasks.html */
-    handler_open_doc = NewEventHandlerUPP(do_filenames_conversion_to_argv);
-    /* Install the event handler. */
-    /* InstallApplicationEventHandler is a macro for 'InstallEventHandler' where the event target */
-    /* is Application. */
-    /* We do not have any windows so having Application as event target should be fine. */
-    handler_install_status = InstallApplicationEventHandler(handler_open_doc, 1,
-                                                            event_types, NULL,
-                                                            &handler_ref);
+    handler_open_doc = NewAEEventHandlerUPP(handle_open_doc_ae);
+
+    handler_install_status = AEInstallEventHandler(kCoreEventClass, kAEOpenDocuments, handler_open_doc, 0, false);
 
     if (handler_install_status == noErr) {
-        VS("LOADER: AppleEvent - installed handler.\n");
 
-        /* TODO */
-        /* ReceiveNextEvent(); */
-        /* RunCurrentEventLoop(timeout); */
-        /* RunApplicationEventLoop(); */
+        VS("LOADER [ARGV_EMU]: AppleEvent - installed handler.\n");
 
-        /* Previous func WaitNextEvent() was deprecated and 32-bit only. */
-        /* Func ReceiveNextEvent() is threadsafe and available even for 64-bit OS X. */
-        /* gotEvent = WaitNextEvent(highLevelEventMask, &event, timeout, NULL); */
-        /* event_received = ReceiveNextEvent(1, event_types, kEventDurationForever, true, &event_ref); */
-        /* event_received = ReceiveNextEvent(0, NULL, kEventDurationNoWait, true, &event_ref); */
-        /* TODO */
-        /* handler_remove_status = RemoveEventHandler(handler_ref); */
-        /*
-         *  if (event_received == noErr)
-         *  {
-         *   VS("LOADER: AppleEvent - received event.\n");
-         *   ev_class = GetEventClass(event_ref);
-         *   ev_kind = GetEventKind(event_ref);
-         *   VS("LOADER: AppleEvent - event type: %u\n", ev_kind);
-         *   //if (GetEventKind(event_ref) == kAEOpenDocuments)
-         *   if (ev_class == kCoreEventClass)
-         *   {
-         *       VS("LOADER: AppleEvent - right class.\n");
-         *   }
-         *
-         *   ReleaseEvent(event_ref);
-         *  }
-         *  else
-         *  {
-         *   VS("LOADER: AppleEvent - ERROR receiving events code: %d\n", event_received);
-         *  }*/
+        while(!gQuit) {
+           VS("LOADER [ARGV_EMU]: AppleEvent - calling ReceiveNextEvent\n");
+           rcv_status = ReceiveNextEvent(1, event_types, timeout, true, &event_ref);
+
+           if (rcv_status == eventLoopTimedOutErr) {
+              VS("LOADER [ARGV_EMU]: ReceiveNextEvent timed out\n");
+              break;
+           }
+           else if (rcv_status != 0) {
+              VS("LOADER [ARGV_EMU]: ReceiveNextEvent fetching events failed");
+              break;
+           }
+           else
+           {
+              VS("LOADER [ARGV_EMU]: ReceiveNextEvent got an event");
+
+              pcs_status = AEProcessEvent(event_ref);
+              if (pcs_status != 0) {
+                 VS("LOADER [ARGV_EMU]: processing events failed");
+                 break;
+              }
+           }
+        }
+
+        VS("LOADER [ARGV_EMU]: Out of the event loop.");
+
+        handler_remove_status = RemoveEventHandler(handler_ref);
 
     }
     else {
-        VS("LOADER: AppleEvent - ERROR installing handler.\n");
+        VS("LOADER [ARGV_EMU]: AppleEvent - ERROR installing handler.\n");
     }
 
     /* Remove handler_ref reference when we are done with EventHandlerUPP. */
     /* Carbon Event Manager does not do this automatically. */
     DisposeEventHandlerUPP(handler_open_doc)
 }
-    #endif /* if defined(__APPLE__) && defined(WINDOWED) */
+#endif /* if defined(__APPLE__) && defined(WINDOWED) */
 
 #endif  /* WIN32 */

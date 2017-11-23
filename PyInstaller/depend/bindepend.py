@@ -1,5 +1,5 @@
 #-----------------------------------------------------------------------------
-# Copyright (c) 2013-2016, PyInstaller Development Team.
+# Copyright (c) 2013-2017, PyInstaller Development Team.
 #
 # Distributed under the terms of the GNU General Public License with exception
 # for distributing bootloader.
@@ -25,7 +25,6 @@ from ..compat import (is_win, is_unix, is_aix, is_solar, is_cygwin, is_hpux,
                       is_darwin, is_freebsd, is_venv, base_prefix, PYDYLIB_NAMES)
 from . import dylib, utils
 
-
 from .. import log as logging
 from ..utils.win32 import winutils
 
@@ -39,6 +38,9 @@ if is_win:
     from ..utils.win32.winmanifest import GetManifestResources
     from ..utils.win32.winmanifest import Manifest
     from ..utils.win32 import winresource
+    import pefile
+    # Do not load all the directories information from the PE file
+    pefile.fast_load = True
 
 
 def getfullnameof(mod, xtrapath=None):
@@ -92,8 +94,6 @@ def _getImports_pe(pth):
     and uses library pefile for that and supports
     32/64bit Windows
     """
-    # ::TODO:: #1920 revert to using pypi version
-    from ..lib import pefile
     dlls = set()
     # By default library pefile parses all PE information.
     # We are only interested in the list of dependent dlls.
@@ -181,9 +181,6 @@ def matchDLLArch(filename):
     # TODO: check machine type on other platforms?
     if not is_win:
         return True
-
-    # ::TODO:: #1920 revert to using pypi version
-    from ..lib import pefile
 
     global _exe_machine_type
     if _exe_machine_type is None:
@@ -610,9 +607,9 @@ def _getImports_macholib(pth):
 
     This implementation is for Mac OS X and uses library macholib.
     """
-    from ..lib.macholib.MachO import MachO
-    from ..lib.macholib.mach_o import LC_RPATH
-    from ..lib.macholib.dyld import dyld_find
+    from macholib.MachO import MachO
+    from macholib.mach_o import LC_RPATH
+    from macholib.dyld import dyld_find
     rslt = set()
     seen = set()  # Libraries read from binary headers.
 
@@ -662,6 +659,10 @@ def _getImports_macholib(pth):
                 if '.framework' in pth:
                     run_paths.update(['../../../'])
 
+    # for distributions like Anaconda, all of the dylibs are stored in the lib directory
+    # of the Python distribution, not alongside of the .so's in each module's subdirectory.
+    run_paths.add(os.path.join(base_prefix, 'lib'))
+
     ## Try to find files in file system.
 
     # In cases with @loader_path or @executable_path
@@ -669,6 +670,7 @@ def _getImports_macholib(pth):
     # This seems to work in most cases.
     exec_path = os.path.abspath(os.path.dirname(pth))
 
+ 
     for lib in seen:
 
         # Suppose that @rpath is not used for system libraries and
@@ -723,7 +725,8 @@ def getImports(pth):
             # dependencies should already have been handled by
             # selectAssemblies in that case, so just warn, return an empty
             # list and continue.
-            logger.warn('Can not get binary dependencies for file: %s', pth, exc_info=1)
+            logger.warning('Can not get binary dependencies for file: %s', pth,
+                           exc_info=1)
             return []
     elif is_darwin:
         return _getImports_macholib(pth)
@@ -890,12 +893,14 @@ def get_python_library_path():
         # and exec_prefix. That's why we can use just sys.prefix.
         # In virtualenv PyInstaller is not able to find Python library.
         # We need special care for this case.
-        py_prefix = compat.base_prefix
-
-        for name in PYDYLIB_NAMES:
-            full_path = os.path.join(py_prefix, name)
-            if os.path.exists(full_path):
-                return full_path
+        # Anaconda places the python library in the lib directory, so
+        # we search this one as well.
+        prefixes = [compat.base_prefix, os.path.join(compat.base_prefix, 'lib')]
+        for prefix in prefixes:
+            for name in PYDYLIB_NAMES:
+                full_path = os.path.join(prefix, name)
+                if os.path.exists(full_path):
+                    return full_path
 
     # Python library NOT found. Return just None.
     return None

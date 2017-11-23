@@ -1,6 +1,6 @@
 .\" Man page generated from reStructuredText.
 .
-.TH "PYI-MAKESPEC" "1" "2016-05-03" "3.2" "PyInstaller"
+.TH "PYI-MAKESPEC" "1" "2017-09-21" "3.3" "PyInstaller"
 .SH NAME
 pyi-makespec \- Create a spec file for your PyInstaller project
 .
@@ -34,7 +34,7 @@ level margin: \\n[rst2man-indent\\n[rst2man-indent-level]]
 .ad l
 \.SH SYNOPSIS
 .sp
-\fBpyi\-makespec\fP <options> SCRIPT [SCRIPT ...]
+\fBpyi\-makespec\fP <options> SCRIPT [SCRIPT …]
 .SH DESCRIPTION
 .sp
 The spec file is the description of what you want \fIPyInstaller\fP to do
@@ -45,7 +45,7 @@ files that cover basic usages:
 .sp
 .nf
 .ft C
-py\-Makespec [\-\-onefile] yourprogram.py
+pyi\-makespec [\-\-onefile] yourprogram.py
 .ft P
 .fi
 .UNINDENT
@@ -68,8 +68,8 @@ show this help message and exit
 .TP
 .BI \-\-log\-level \ LEVEL
 Amount of detail in build\-time console messages. LEVEL
-may be one of DEBUG, INFO, WARN, ERROR, CRITICAL
-(default: INFO).
+may be one of TRACE, DEBUG, INFO, WARN, ERROR,
+CRITICAL (default: INFO).
 .UNINDENT
 .SS What to generate
 .INDENT 0.0
@@ -87,14 +87,26 @@ current directory)
 .TP
 .BI \-n \ NAME\fP,\fB \ \-\-name \ NAME
 Name to assign to the bundled app and spec file
-(default: first script\(aqs basename)
+(default: first script’s basename)
 .UNINDENT
 .SS What to bundle, where to search
 .INDENT 0.0
 .TP
+.BI \-\-add\-data \ <SRC;DEST or SRC:DEST>
+Additional non\-binary files or folders to be added to
+the executable. The path separator is platform
+specific, \fBos.pathsep\fP (which is \fB;\fP on Windows
+and \fB:\fP on most unix systems) is used. This option
+can be used multiple times.
+.TP
+.BI \-\-add\-binary \ <SRC;DEST or SRC:DEST>
+Additional binary files to be added to the executable.
+See the \fB\-\-add\-data\fP option for more details. This
+option can be used multiple times.
+.TP
 .BI \-p \ DIR\fP,\fB \ \-\-paths \ DIR
 A path to search for imports (like using PYTHONPATH).
-Multiple paths are allowed, separated by \(aq:\(aq, or use
+Multiple paths are allowed, separated by ‘:’, or use
 this option multiple times
 .TP
 .BI \-\-hidden\-import \ MODULENAME\fP,\fB \ \-\-hiddenimport \ MODULENAME
@@ -113,8 +125,8 @@ special features of the runtime environment. This
 option can be used multiple times.
 .TP
 .BI \-\-exclude\-module \ EXCLUDES
-Optional module or package (his Python names, not path
-names) that will be ignored (as though it was not
+Optional module or package (the Python name, not the
+path name) that will be ignored (as though it was not
 found). This option can be used multiple times.
 .TP
 .BI \-\-key \ KEY
@@ -210,7 +222,18 @@ unique program name for code signing purposes. The
 usual form is a hierarchical name in reverse DNS
 notation. For example:
 com.mycompany.department.appname (default: first
-script\(aqs basename)
+script’s basename)
+.UNINDENT
+.SS Rarely used special options
+.INDENT 0.0
+.TP
+.BI \-\-runtime\-tmpdir \ PATH
+Where to extract libraries and support files in
+\fIonefile\fP\-mode. If this option is given, the
+bootloader will ignore any temp\-folder location
+defined by the run\-time OS. The \fB_MEIxxxxxx\fP\-folder
+will be created here. Please use this option only if
+you know what you are doing.
 .UNINDENT
 .SH ENVIRONMENT VARIABLES
 .TS
