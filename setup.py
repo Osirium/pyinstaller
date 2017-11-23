@@ -162,8 +162,11 @@ setup(
     name='PyInstaller',
     version=version,
 
-    description='PyInstaller bundles a Python application and all its '
-                'dependencies into a single package.',
+    description="OSIRIUM CUSTOM PYINSTALLER - A custom pyinstaller built from "
+    'pyinstaller 3.3 with this '
+    'https://github.com/pyinstaller/pyinstaller/pull/2233 whacked on top so that '
+    'we can build wxPython 4 off the back of it. See here for the code '
+    'https://github.com/Osirium/pyinstaller/tree/repair_wx_lib_pubsub',
     long_description=long_description,
     keywords='packaging app apps bundle convert standalone executable '
              'pyinstaller macholib cxfreeze freeze py2exe py2app bbfreeze',
